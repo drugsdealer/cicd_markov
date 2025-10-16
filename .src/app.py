@@ -1,1 +1,1 @@
-print("Hello, Stage Store CI/CD Pipeline Works!")
+print("Hello, new feature/test branch!")
