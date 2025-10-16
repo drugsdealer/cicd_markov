@@ -19,28 +19,30 @@ jobs:
       - name: Build Docker image
         run: |
           echo "🛠 Building Docker image..."
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/cicd_markov:${{ github.run_number }} .
+          docker build -t drugsdealer/cicd_markov:${{ github.run_number }} .
 
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: "drugsdealer"       # замени на свой DockerHub username
+          password: "${{ secrets.DOCKERHUB_TOKEN }}"
 
       - name: Push Docker image
         run: |
           echo "📦 Pushing Docker image..."
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/cicd_markov:${{ github.run_number }}
+          docker push drugsdealer/cicd_markov:${{ github.run_number }}
 
-      - name: Notify Telegram
+      - name: Notify Telegram (test direct token)
         uses: appleboy/telegram-action@master
         with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          to: "🔢ТВОЙ_TELEGRAM_ID_СЮДА"   # например, 5361248875
+          token: "8218668682:AAH3sp-Bd-485oEXdkUPTm0PqxaeOK11MD8"
           message: |
-            🚀 Новая версия деплойнута!
-            Репозиторий: ${{ github.repository }}
-            Коммит: ${{ github.event.head_commit.message }}
+            ✅ CI/CD пайплайн отработал успешно!
+            🚀 Репозиторий: ${{ github.repository }}
+            🧱 Коммит: ${{ github.event.head_commit.message }}
+            🔗 DockerHub: https://hub.docker.com/repository/docker/drugsdealer/cicd_markov
+            🕒 Версия: v${{ github.run_number }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -48,4 +50,6 @@ jobs:
           tag_name: v${{ github.run_number }}
           name: Release v${{ github.run_number }}
           body: |
-            Новая версия успешно собрана и опубликована.
+            ✅ CI/CD прошёл успешно
+            🐳 Docker образ опубликован
+            📬 Уведомление отправлено в Telegram
