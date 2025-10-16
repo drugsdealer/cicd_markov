@@ -15,7 +15,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  # 1️⃣ Тестирование
+  # 1) Тестирование
   test:
     name: Run Tests
     runs-on: ubuntu-latest
@@ -37,16 +37,16 @@ jobs:
           fi
 
       - name: Dummy tests
-        run: echo "✅ Tests passed"
+        run: echo "Tests passed"
 
-      - name: Add PR label: test-passed
+      - name: "Add PR label: test-passed"
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           labels: test-passed
 
-  # 2️⃣ Проверка безопасности
+  # 2) Проверка безопасности
   security:
     name: Security Check
     runs-on: ubuntu-latest
@@ -66,14 +66,14 @@ jobs:
       - name: Lint (flake8)
         run: flake8 . || true
 
-      - name: Add PR label: sec-passed
+      - name: "Add PR label: sec-passed"
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           labels: sec-passed
 
-  # 3️⃣ Апдейт версии
+  # 3) Апдейт версии
   version:
     name: Update Version
     runs-on: ubuntu-latest
@@ -98,6 +98,7 @@ jobs:
         run: |
           OLD=${{ steps.readver.outputs.current_version }}
           IFS='.' read -r MAJ MIN PATCH <<< "$OLD"
+          # feature/* -> minor++, иначе patch++
           if [[ "${GITHUB_REF}" == refs/heads/feature/* ]]; then
             MIN=$((MIN + 1))
           else
@@ -106,7 +107,6 @@ jobs:
           NEW="$MAJ.$MIN.$PATCH"
           echo "$NEW" > version
           echo "new_version=$NEW" >> $GITHUB_OUTPUT
-          echo "🔼 Version updated: $OLD → $NEW"
 
       - name: Commit version file
         run: |
@@ -116,7 +116,7 @@ jobs:
           git commit -m "Version: ${{ steps.bump.outputs.new_version }} <- ${{ steps.readver.outputs.current_version }}" || true
           git push || true
 
-      - name: Add PR label: version-updated
+      - name: "Add PR label: version-updated"
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions-ecosystem/action-add-labels@v1
         with:
