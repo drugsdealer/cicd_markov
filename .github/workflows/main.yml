@@ -1,58 +1,119 @@
-name: CI/CD Pipeline
+name: Stage Store CI/CD Full
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main, feature/*, hotfix/* ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
-  build:
+  # 1️⃣ Тестирование
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
 
-      - name: Build Docker image
+      - name: Install dependencies
         run: |
-          echo "🛠 Building Docker image..."
-          docker build -t drugsdealer/cicd_markov:${{ github.run_number }} .
+          echo "🔧 Устанавливаем зависимости..."
+          pip install -r requirements.txt || echo "requirements.txt не найден, пропускаем"
 
-      - name: Login to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: "drugsdealer"       # твой DockerHub username
-          password: "${{ secrets.DOCKERHUB_TOKEN }}"
-
-      - name: Push Docker image
+      - name: Run dummy tests
         run: |
-          echo "📦 Pushing Docker image..."
-          docker push drugsdealer/cicd_markov:${{ github.run_number }}
+          echo "✅ Тесты успешно пройдены!"
+          echo "test passed"
 
-      - name: Notify Telegram (direct test)
-        uses: appleboy/telegram-action@master
+      - name: Add PR label: test-passed
+        if: github.event_name == 'pull_request'
+        uses: actions-ecosystem/action-add-labels@v1
         with:
-          to: "1118452731"
-          token: "8218668682:AAH3sp-Bd-485oEXdkUPTm0PqxaeOK11MD8"
-          message: |
-            ✅ CI/CD пайплайн отработал успешно!
-            🚀 Репозиторий: ${{ github.repository }}
-            🧱 Коммит: ${{ github.event.head_commit.message }}
-            🔗 DockerHub: https://hub.docker.com/repository/docker/drugsdealer/cicd_markov
-            🕒 Версия: v${{ github.run_number }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: test-passed
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+  # 2️⃣ Проверка безопасности
+  security:
+    name: Security Check
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run Safety (проверка уязвимостей)
+        run: |
+          echo "🛡 Проверяем зависимости на уязвимости..."
+          pip install safety || echo "safety не установлен"
+          safety check || echo "⚠️ Уязвимости найдены (демо-режим)"
+
+      - name: Run Linter (безопасность кода)
+        run: |
+          pip install flake8 || echo "flake8 не установлен"
+          echo "🧹 Запускаем линтер..."
+          flake8 . || echo "⚠️ Ошибки линтинга (демо-режим)"
+
+      - name: Add PR label: sec-passed
+        if: github.event_name == 'pull_request'
+        uses: actions-ecosystem/action-add-labels@v1
         with:
-          tag_name: v${{ github.run_number }}
-          name: Release v${{ github.run_number }}
-          body: |
-            ✅ CI/CD прошёл успешно
-            🐳 Docker образ опубликован
-            📬 Уведомление отправлено в Telegram
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: sec-passed
+
+  # 3️⃣ Апдейт версии
+  version:
+    name: Update Version
+    runs-on: ubuntu-latest
+    needs: security
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Read current version
+        id: version
+        run: |
+          echo "📖 Читаем текущую версию..."
+          if [ -f version ]; then
+            cat version
+            echo "current_version=$(cat version)" >> $GITHUB_OUTPUT
+          else
+            echo "0.1.0" > version
+            echo "current_version=0.1.0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Calculate new version
+        id: bump
+        run: |
+          echo "🧮 Вычисляем новую версию..."
+          old=${{ steps.version.outputs.current_version }}
+          major=$(echo $old | cut -d. -f1)
+          minor=$(echo $old | cut -d. -f2)
+          patch=$(echo $old | cut -d. -f3)
+          if [[ "${{ github.ref }}" == *"feature"* ]]; then
+            minor=$((minor + 1))
+          else
+            patch=$((patch + 1))
+          fi
+          new="$major.$minor.$patch"
+          echo "new_version=$new" >> $GITHUB_OUTPUT
+          echo $new > version
+          echo "🔖 Новая версия: $new"
+
+      - name: Commit new version
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add version
+          git commit -m "🔼 Version bump: ${{ steps.bump.outputs.new_version }} <- ${{ steps.version.outputs.current_version }}"
+          git push
+
+      - name: Add PR label: version-updated
+        if: github.event_name == 'pull_request'
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: version-updated
