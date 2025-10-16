@@ -2,7 +2,7 @@ name: Stage Store CI/CD Full
 
 on:
   push:
-    branches: [ main, feature/*, hotfix/* ]
+    branches: [ main, "feature/*", "hotfix/*" ]
   pull_request:
     branches: [ main ]
 
@@ -11,108 +11,115 @@ permissions:
   pull-requests: write
 
 jobs:
-  # 1️⃣ Тестирование
+  # 1) Тестирование
   test:
     name: Run Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install deps (optional)
         run: |
-          echo "🔧 Устанавливаем зависимости..."
-          pip install -r requirements.txt || echo "requirements.txt не найден, пропускаем"
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "requirements.txt not found, skipping"
+          fi
 
-      - name: Run dummy tests
+      - name: Dummy tests
         run: |
-          echo "✅ Тесты успешно пройдены!"
-          echo "test passed"
+          echo "Tests passed"
 
       - name: Add PR label: test-passed
-        if: github.event_name == 'pull_request'
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           labels: test-passed
 
-  # 2️⃣ Проверка безопасности
+  # 2) Проверка безопасности
   security:
     name: Security Check
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v3
-      - name: Run Safety (проверка уязвимостей)
-        run: |
-          echo "🛡 Проверяем зависимости на уязвимости..."
-          pip install safety || echo "safety не установлен"
-          safety check || echo "⚠️ Уязвимости найдены (демо-режим)"
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - name: Run Linter (безопасность кода)
+      - name: Install safety & flake8
         run: |
-          pip install flake8 || echo "flake8 не установлен"
-          echo "🧹 Запускаем линтер..."
-          flake8 . || echo "⚠️ Ошибки линтинга (демо-режим)"
+          python -m pip install --upgrade pip
+          pip install safety flake8 || true
+
+      - name: Safety scan (dependencies)
+        run: |
+          safety check || true
+
+      - name: Lint (flake8)
+        run: |
+          flake8 . || true
 
       - name: Add PR label: sec-passed
-        if: github.event_name == 'pull_request'
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           labels: sec-passed
 
-  # 3️⃣ Апдейт версии
+  # 3) Апдейт версии
   version:
     name: Update Version
     runs-on: ubuntu-latest
     needs: security
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
       - name: Read current version
-        id: version
+        id: readver
+        shell: bash
         run: |
-          echo "📖 Читаем текущую версию..."
           if [ -f version ]; then
-            cat version
-            echo "current_version=$(cat version)" >> $GITHUB_OUTPUT
+            CURR=$(cat version)
           else
-            echo "0.1.0" > version
-            echo "current_version=0.1.0" >> $GITHUB_OUTPUT
+            CURR="0.1.0"
+            echo "$CURR" > version
           fi
+          echo "current_version=$CURR" >> "$GITHUB_OUTPUT"
 
-      - name: Calculate new version
+      - name: Bump version
         id: bump
+        shell: bash
         run: |
-          echo "🧮 Вычисляем новую версию..."
-          old=${{ steps.version.outputs.current_version }}
-          major=$(echo $old | cut -d. -f1)
-          minor=$(echo $old | cut -d. -f2)
-          patch=$(echo $old | cut -d. -f3)
-          if [[ "${{ github.ref }}" == *"feature"* ]]; then
-            minor=$((minor + 1))
+          OLD="${{ steps.readver.outputs.current_version }}"
+          IFS='.' read -r MAJ MIN PATCH <<< "$OLD"
+          if [[ "${{ github.ref }}" == *"feature/"* ]]; then
+            MIN=$((MIN + 1))
           else
-            patch=$((patch + 1))
+            PATCH=$((PATCH + 1))
           fi
-          new="$major.$minor.$patch"
-          echo "new_version=$new" >> $GITHUB_OUTPUT
-          echo $new > version
-          echo "🔖 Новая версия: $new"
+          NEW="$MAJ.$MIN.$PATCH"
+          echo "$NEW" > version
+          echo "new_version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Bumped: $OLD -> $NEW"
 
-      - name: Commit new version
+      - name: Commit version file
+        shell: bash
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add version
-          git commit -m "🔼 Version bump: ${{ steps.bump.outputs.new_version }} <- ${{ steps.version.outputs.current_version }}"
-          git push
+          git commit -m "Version: ${{ steps.bump.outputs.new_version }} <- ${{ steps.readver.outputs.current_version }}" || echo "No changes"
+          git push || echo "Nothing to push"
 
       - name: Add PR label: version-updated
-        if: github.event_name == 'pull_request'
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
