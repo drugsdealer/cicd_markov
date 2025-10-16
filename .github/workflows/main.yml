@@ -4,8 +4,8 @@ on:
   push:
     branches:
       - main
-      - 'feature/*'
-      - 'hotfix/*'
+      - "feature/*"
+      - "hotfix/*"
   pull_request:
     branches:
       - main
@@ -15,7 +15,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  # 1) Тестирование
+  # 1️⃣ Тестирование
   test:
     name: Run Tests
     runs-on: ubuntu-latest
@@ -26,7 +26,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Install deps (optional)
         run: |
@@ -37,16 +37,16 @@ jobs:
           fi
 
       - name: Dummy tests
-        run: echo "Tests passed"
+        run: echo "✅ Tests passed"
 
       - name: Add PR label: test-passed
-        if: github.event_name == 'pull_request'
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           labels: test-passed
 
-  # 2) Проверка безопасности
+  # 2️⃣ Проверка безопасности
   security:
     name: Security Check
     runs-on: ubuntu-latest
@@ -67,13 +67,13 @@ jobs:
         run: flake8 . || true
 
       - name: Add PR label: sec-passed
-        if: github.event_name == 'pull_request'
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           labels: sec-passed
 
-  # 3) Апдейт версии
+  # 3️⃣ Апдейт версии
   version:
     name: Update Version
     runs-on: ubuntu-latest
@@ -84,7 +84,6 @@ jobs:
 
       - name: Read current version
         id: readver
-        shell: bash
         run: |
           if [ -f version ]; then
             CURR=$(cat version)
@@ -92,15 +91,13 @@ jobs:
             CURR="0.1.0"
             echo "$CURR" > version
           fi
-          echo "current_version=$CURR" >> "$GITHUB_OUTPUT"
+          echo "current_version=$CURR" >> $GITHUB_OUTPUT
 
       - name: Bump version
         id: bump
-        shell: bash
         run: |
-          OLD="${{ steps.readver.outputs.current_version }}"
+          OLD=${{ steps.readver.outputs.current_version }}
           IFS='.' read -r MAJ MIN PATCH <<< "$OLD"
-          # feature/* -> minor++, иначе patch++
           if [[ "${GITHUB_REF}" == refs/heads/feature/* ]]; then
             MIN=$((MIN + 1))
           else
@@ -108,10 +105,10 @@ jobs:
           fi
           NEW="$MAJ.$MIN.$PATCH"
           echo "$NEW" > version
-          echo "new_version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "new_version=$NEW" >> $GITHUB_OUTPUT
+          echo "🔼 Version updated: $OLD → $NEW"
 
       - name: Commit version file
-        shell: bash
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
@@ -120,7 +117,7 @@ jobs:
           git push || true
 
       - name: Add PR label: version-updated
-        if: github.event_name == 'pull_request'
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
