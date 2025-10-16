@@ -27,7 +27,7 @@ jobs:
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
-          username: "drugsdealer"       # замени на свой DockerHub username
+          username: "drugsdealer"       # твой DockerHub username
           password: "${{ secrets.DOCKERHUB_TOKEN }}"
 
       - name: Push Docker image
@@ -35,10 +35,10 @@ jobs:
           echo "📦 Pushing Docker image..."
           docker push drugsdealer/cicd_markov:${{ github.run_number }}
 
-      - name: Notify Telegram (test direct token)
+      - name: Notify Telegram (direct test)
         uses: appleboy/telegram-action@master
         with:
-          to: "🔢ТВОЙ_TELEGRAM_ID_СЮДА"   # например, 5361248875
+          to: "1118452731"
           token: "8218668682:AAH3sp-Bd-485oEXdkUPTm0PqxaeOK11MD8"
           message: |
             ✅ CI/CD пайплайн отработал успешно!
