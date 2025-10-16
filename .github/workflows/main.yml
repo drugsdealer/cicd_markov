@@ -46,7 +46,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           labels: test-passed
 
-  # 2) Security (не падаем, если есть предупреждения)
+  # 2) Security
   security:
     name: Security Check
     runs-on: ubuntu-latest
@@ -78,6 +78,8 @@ jobs:
     name: Update Version
     runs-on: ubuntu-latest
     needs: security
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -98,7 +100,6 @@ jobs:
         run: |
           OLD=${{ steps.readver.outputs.current_version }}
           IFS='.' read -r MAJ MIN PATCH <<< "$OLD"
-          # feature/* -> minor++, иначе patch++
           if [[ "${GITHUB_REF}" == refs/heads/feature/* ]]; then
             MIN=$((MIN + 1))
           else
@@ -124,21 +125,128 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           labels: version-updated
 
-  # 4) Уведомление в Telegram (только пуш в main)
+  # 4) Формирование CHANGELOG.md + артефакт + лейбл 'changelog'
+  changelog:
+    name: Generate CHANGELOG
+    runs-on: ubuntu-latest
+    needs: version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Build changelog entry
+        id: buildlog
+        run: |
+          V="v${{ needs.version.outputs.new_version }}"
+          DATE="$(date +'%Y-%m-%d %H:%M')"
+          BRANCH="${GITHUB_REF_NAME}"
+          MSG="$(git log -1 --pretty=%s)"
+          SHA="$(git rev-parse --short HEAD)"
+
+          {
+            echo "## ${V} — ${DATE}"
+            echo "- Branch: ${BRANCH}"
+            echo "- Commit: ${SHA} — ${MSG}"
+            echo
+          } > .changelog_entry
+
+          if [ -f CHANGELOG.md ]; then
+            cat .changelog_entry CHANGELOG.md > .tmp && mv .tmp CHANGELOG.md
+          else
+            mv .changelog_entry CHANGELOG.md
+          fi
+
+          echo "tag=${V}" >> $GITHUB_OUTPUT
+
+      - name: Commit changelog
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add CHANGELOG.md
+          git commit -m "changelog: ${{ steps.buildlog.outputs.tag }}" || true
+          git push || true
+
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: CHANGELOG.md
+
+      - name: "Add PR label changelog"
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: changelog
+
+  # 5) Публикация в DockerHub + обновление описания/README + лейбл 'dockerhub'
+  dockerhub:
+    name: Publish Docker image
+    runs-on: ubuntu-latest
+    needs: [version, changelog]
+    env:
+      DOCKER_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
+      VERSION_TAG: v${{ needs.version.outputs.new_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.DOCKER_REPO }}:${{ env.VERSION_TAG }}
+            ${{ env.DOCKER_REPO }}:latest
+
+      - name: Update DockerHub description
+        uses: peter-evans/dockerhub-description@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKER_REPO }}
+          short-description: ${{ github.event.repository.description }}
+          readme-filepath: README.md
+
+      - name: "Add PR label dockerhub"
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: dockerhub
+
+  # 6) Нотификация в Telegram с прикреплённым CHANGELOG.md
   notify:
     name: Notify Telegram
     runs-on: ubuntu-latest
-    needs: version
+    needs: dockerhub
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
+      - name: Download changelog artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: changelog
+          path: artifacts
+
       - name: Send Telegram message
         uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_TO }}
           token: ${{ secrets.TELEGRAM_TOKEN }}
           message: |
-            ✅ Выпущена новая версия
+            ✅ Выпущена новая версия: v${{ needs.version.outputs.new_version }}
             📦 Репозиторий: ${{ github.repository }}
             🔀 Ветка: ${{ github.ref_name }}
-            🧾 Версия: ${{ needs.version.outputs.new_version || 'see version file' }}
-            🔗 Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            🧾 CHANGELOG приложен файлом
+            🐳 DockerHub: https://hub.docker.com/r/${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}/tags
+            ▶️ Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          document: artifacts/CHANGELOG.md
