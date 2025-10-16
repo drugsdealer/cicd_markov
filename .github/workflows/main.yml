@@ -2,9 +2,13 @@ name: Stage Store CI/CD Full
 
 on:
   push:
-    branches: [ main, "feature/*", "hotfix/*" ]
+    branches:
+      - main
+      - 'feature/*'
+      - 'hotfix/*'
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -22,7 +26,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
       - name: Install deps (optional)
         run: |
@@ -33,11 +37,10 @@ jobs:
           fi
 
       - name: Dummy tests
-        run: |
-          echo "Tests passed"
+        run: echo "Tests passed"
 
       - name: Add PR label: test-passed
-        if: ${{ github.event_name == 'pull_request' }}
+        if: github.event_name == 'pull_request'
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -57,16 +60,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install safety flake8 || true
 
-      - name: Safety scan (dependencies)
-        run: |
-          safety check || true
+      - name: Safety scan
+        run: safety check || true
 
       - name: Lint (flake8)
-        run: |
-          flake8 . || true
+        run: flake8 . || true
 
       - name: Add PR label: sec-passed
-        if: ${{ github.event_name == 'pull_request' }}
+        if: github.event_name == 'pull_request'
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -99,7 +100,8 @@ jobs:
         run: |
           OLD="${{ steps.readver.outputs.current_version }}"
           IFS='.' read -r MAJ MIN PATCH <<< "$OLD"
-          if [[ "${{ github.ref }}" == *"feature/"* ]]; then
+          # feature/* -> minor++, иначе patch++
+          if [[ "${GITHUB_REF}" == refs/heads/feature/* ]]; then
             MIN=$((MIN + 1))
           else
             PATCH=$((PATCH + 1))
@@ -107,7 +109,6 @@ jobs:
           NEW="$MAJ.$MIN.$PATCH"
           echo "$NEW" > version
           echo "new_version=$NEW" >> "$GITHUB_OUTPUT"
-          echo "Bumped: $OLD -> $NEW"
 
       - name: Commit version file
         shell: bash
@@ -115,11 +116,11 @@ jobs:
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add version
-          git commit -m "Version: ${{ steps.bump.outputs.new_version }} <- ${{ steps.readver.outputs.current_version }}" || echo "No changes"
-          git push || echo "Nothing to push"
+          git commit -m "Version: ${{ steps.bump.outputs.new_version }} <- ${{ steps.readver.outputs.current_version }}" || true
+          git push || true
 
       - name: Add PR label: version-updated
-        if: ${{ github.event_name == 'pull_request' }}
+        if: github.event_name == 'pull_request'
         uses: actions-ecosystem/action-add-labels@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
